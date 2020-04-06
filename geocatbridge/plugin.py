@@ -12,7 +12,7 @@ from qgis.core import QgsMessageLog, Qgis, QgsProject, QgsApplication, QgsAuthMe
 from .utils.files import removeTempFolder
 from .ui.bridgedialog import BridgeDialog
 from .ui.multistylerdialog import MultistylerDialog
-from .ui.logindialog import LoginDialog, KEY_NAME, doEnterpriseLogin
+from .ui.logindialog import LoginDialog, KEY_NAME, verifyLicenseKey
 from .publish.servers import readServers
 from .processing.bridgeprovider import BridgeProvider
 from .errorhandler import handleError
@@ -129,23 +129,24 @@ class GeocatBridge:
                 del self._layerSignals[layer]
                 return
 
-    isRegistered = False
-
     def publishClicked(self):
-        if isEnterprise() and not self.isRegistered:
-            if not self.login():
-                return
-        dialog = BridgeDialog(self.iface.mainWindow())
+        registeredTo = None
+        if isEnterprise():
+            authManager = QgsApplication.authManager()
+            if KEY_NAME in authManager.configIds():            
+                authConfig = QgsAuthMethodConfig()
+                authManager.loadAuthenticationConfig(KEY_NAME, authConfig, True)            
+                key = authConfig.config('licensekey')
+                registeredTo = verifyLicenseKey(key)
+                dlg = LoginDialog(self.iface.mainWindow())
+                dlg.exec_()
+                if dlg.registeredTo is None:
+                    return
+                registeredTo = dlg.registeredTo                        
+        dialog = BridgeDialog(self.iface.mainWindow(), registeredTo)
         dialog.exec_()
+        
+        
 
-    def login(self):
-        authManager = QgsApplication.authManager()
-        if KEY_NAME in authManager.configIds():
-            authConfig = QgsAuthMethodConfig()
-            authManager.loadAuthenticationConfig(KEY_NAME, authConfig, True)            
-            key = authConfig.config('licensekey')
-            if doEnterpriseLogin(key):
-                return True
-        dlg = LoginDialog(self.iface.mainWindow())
-        return dlg.exec_() == QDialog.Accepted
+        
         

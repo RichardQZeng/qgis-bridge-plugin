@@ -1,14 +1,31 @@
+import requests
+import socket
+
 from qgis.PyQt.QtWidgets import QDialog, QLineEdit, QPushButton, QVBoxLayout, QMessageBox, QLabel
 from qgis.core import QgsApplication, QgsAuthMethodConfig
 
-KEY_NAME = "geocatbridgenterprise"
+KEY_NAME = "geocatbridgenterprise" 
+verifyUrl = "https://my.geocat.net/modules/servers/licensing/verify.php"
 
-def doEnterpriseLogin(key):
-    return True #TODO
+def verifyLicenseKey(key):
+    params = {"license-key": key,                
+                "ip": hostIp}
+    ret = requests.post(verifyUrl, data=params)
+    #TODO
+    return "Mister Username"
+
+def hostIp():
+    try: 
+        name = socket.gethostname()
+        ip = socket.gethostbyname(host_name)
+        return ip
+    except: 
+        return ""
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super(LoginDialog, self).__init__(parent)
+        self.registeredTo = None
         self.setWindowTitle("GeoCat Bridge Enterprise")
         self.label = QLabel("Enter your Bridge Enterprise licence key")
         self.textKey = QLineEdit(self)
@@ -21,7 +38,8 @@ class LoginDialog(QDialog):
 
     def handleLogin(self):
         key = self.textKey.text()
-        if doEnterpriseLogin(key):
+        username = verifyLicenseKey(key)
+        if username:
             authMgr = QgsApplication.authManager()        
             config = QgsAuthMethodConfig()
             config.setId(KEY_NAME)
@@ -31,6 +49,7 @@ class LoginDialog(QDialog):
             config.setConfig("password", "")
             config.setConfig("licensekey", key)
             authMgr.storeAuthenticationConfig(config)
+            self.registeredTo = username
             self.accept()
         else:
-            QMessageBox.warning(self, 'Error', 'Bad username or password')
+            QMessageBox.warning(self, 'Error', 'Invalid license key')

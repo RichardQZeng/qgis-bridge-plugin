@@ -18,9 +18,11 @@ WIDGET, BASE = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'bridgedia
 
 class BridgeDialog(BASE, WIDGET):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent, registeredTo):
         super(BridgeDialog, self).__init__(parent)
         self.setupUi(self)
+        if registeredTo is not None:
+            self.setWindowTitle("GeoCat Bridge - Registered to {}".format(registeredTo))
         self.publishWidget = PublishWidget(self)
         self.serversWidget = ServerConnectionsWidget()
         self.geocatWidget = GeoCatWidget()
