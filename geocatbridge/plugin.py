@@ -129,20 +129,26 @@ class GeocatBridge:
                 del self._layerSignals[layer]
                 return
 
+    alreadyLoggedIn = False
+
     def publishClicked(self):
         registeredTo = None
-        if isEnterprise():
+        if isEnterprise() and not self.alreadyLoggedIn:
             authManager = QgsApplication.authManager()
+            showDialog = True
             if KEY_NAME in authManager.configIds():            
                 authConfig = QgsAuthMethodConfig()
                 authManager.loadAuthenticationConfig(KEY_NAME, authConfig, True)            
                 key = authConfig.config('licensekey')
-                registeredTo = verifyLicenseKey(key)
+                registeredTo, error = verifyLicenseKey(key)
+                showDialog = error is not None
+                self.alreadyLoggedIn = not showDialog
+            if showDialog:
                 dlg = LoginDialog(self.iface.mainWindow())
                 dlg.exec_()
                 if dlg.registeredTo is None:
                     return
-                registeredTo = dlg.registeredTo                        
+                registeredTo = dlg.registeredTo
         dialog = BridgeDialog(self.iface.mainWindow(), registeredTo)
         dialog.exec_()
         

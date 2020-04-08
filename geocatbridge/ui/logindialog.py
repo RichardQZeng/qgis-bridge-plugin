@@ -1,45 +1,60 @@
-import requests
-import socket
+import os
 
+import requests
+import xml.etree.ElementTree as ET
+
+from qgis.PyQt import uic
 from qgis.PyQt.QtWidgets import QDialog, QLineEdit, QPushButton, QVBoxLayout, QMessageBox, QLabel
+from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsApplication, QgsAuthMethodConfig
 
 KEY_NAME = "geocatbridgenterprise" 
 verifyUrl = "https://my.geocat.net/modules/servers/licensing/verify.php"
 
 def verifyLicenseKey(key):
-    params = {"license-key": key,                
-                "ip": hostIp}
-    ret = requests.post(verifyUrl, data=params)
-    #TODO
-    return "Mister Username"
+    try:
+        params = {"licensekey": key}
+        ret = requests.post(verifyUrl, data=params)   
+        root = ET.fromstring("<root>{}</root>".format(ret.text))
+        print(ret.text)        
+        statusNode = root.find("status")
+        if statusNode is None:
+            return None, "Wrong server response"
+        status = statusNode.text        
+        if status == "Active":
+            name = root.find("registeredname").text
+            return name, None
+        elif status ==  "Invalid":
+            return None, "License key is Invalid"
+        elif status ==  "Expired":
+            return None, "License key is Expired"
+        elif status ==  "Suspended":
+            return None, "License key is Suspended"        
+        else:
+            return None, "Invalid Response"
+    except:
+        return None, "Error when checking license validity"
 
-def hostIp():
-    try: 
-        name = socket.gethostname()
-        ip = socket.gethostbyname(host_name)
-        return ip
-    except: 
-        return ""
 
-class LoginDialog(QDialog):
+def iconPath(icon):
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", icon)
+
+KEY_ICON = QIcon(iconPath("key.png"))
+WIDGET, BASE = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'licensekeydialog.ui'))
+
+class LoginDialog(BASE, WIDGET):
     def __init__(self, parent=None):
         super(LoginDialog, self).__init__(parent)
+        self.setupUi(self)
         self.registeredTo = None
-        self.setWindowTitle("GeoCat Bridge Enterprise")
-        self.label = QLabel("Enter your Bridge Enterprise licence key")
-        self.textKey = QLineEdit(self)
-        self.buttonLogin = QPushButton('Login', self)
         self.buttonLogin.clicked.connect(self.handleLogin)
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.label)
-        layout.addWidget(self.textKey)        
-        layout.addWidget(self.buttonLogin)
+        pixmap = KEY_ICON.pixmap(KEY_ICON.availableSizes()[0]);
+        self.labelLogo.setPixmap(pixmap)
 
     def handleLogin(self):
-        key = self.textKey.text()
-        username = verifyLicenseKey(key)
-        if username:
+        key = self.txtLicenseKey.text()
+        username, error = verifyLicenseKey(key)
+        if error is None:
             authMgr = QgsApplication.authManager()        
             config = QgsAuthMethodConfig()
             config.setId(KEY_NAME)
@@ -52,4 +67,4 @@ class LoginDialog(QDialog):
             self.registeredTo = username
             self.accept()
         else:
-            QMessageBox.warning(self, 'Error', 'Invalid license key')
+            QMessageBox.warning(self, 'Error', error)
