@@ -547,7 +547,7 @@ class PublishWidget(BASE, WIDGET):
                 self.updateLayersPublicationStatus(task.geodataServer is not None, task.metadataServer is not None)
 
     def publishOnBackground(self):
-        if self.validateBeforePublication():
+        if self.validateBeforePublication(self._toPublish()):
             self.parent.close()
             task = self.getPublishTask(iface.mainWindow())
             def _finished():
@@ -572,12 +572,11 @@ class PublishWidget(BASE, WIDGET):
                 if name in names:
                     errors.add("Several layers with the same name")
                 names.append(name)
-        print(0)
         if self.comboGeodataServer.currentIndex() != 0:
-            print("a")
             geodataServer = geodataServers()[self.comboGeodataServer.currentText()]
-            geodataServer.validateGeodataBeforePublication(errors, toPublish)
-
+            geodataServer.validateGeodataBeforePublication(
+                errors, toPublish, self.chkOnlySymbology.checkState() == Qt.Checked
+            )
 
         if self.comboMetadataServer.currentIndex() != 0:
             metadataServer = metadataServers()[self.comboMetadataServer.currentText()]
