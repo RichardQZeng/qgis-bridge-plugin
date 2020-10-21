@@ -588,6 +588,7 @@ class GeoserverServer(ServerBase):
         url = "%s/workspaces/%s/layers/%s.json" % (self.url, self._workspace, name)
         layer = self.request(url).json()
         styleUrl = "%s/workspaces/%s/styles/%s.json" % (self.url, self._workspace, name)
+        # TODO: does this still work properly?
         layer["layer"]["defaultStyle"] = {
             "name": name,
             "href": styleUrl
@@ -610,18 +611,17 @@ class GeoserverServer(ServerBase):
             url = "%s/workspaces/%s/layers/%s.json" % (self.url, self._workspace, new_name)
             layer = self.request(url).json()
 
+        # Get the URL of the unwanted global style that we need to clean up
         remove_url = "%s?recurse=true&purge=true" % layer["layer"]["defaultStyle"]["href"]
 
-        # Assign desired style (and name)
-        style_url = "%s/workspaces/%s/styles/%s.json" % (self.url, self._workspace, new_name)
+        # Assign desired workspace style (and name)
         layer["layer"]["name"] = new_name
         layer["layer"]["defaultStyle"] = {
-            "name": new_name,
-            "href": style_url
+            "name": "%s:%s" % (self._workspace, new_name)   # use workspace:name as identifier
         }
         self.request(url, data=layer, method="put")
 
-        # Remove "dummy" global style created by Importer extension (if exists)
+        # Remove unwanted global style created by Importer extension (if exists)
         try:
             self.request(remove_url, method="delete")
         except HTTPError:
