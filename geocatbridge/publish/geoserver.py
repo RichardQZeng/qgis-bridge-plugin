@@ -254,7 +254,7 @@ class GeoserverServer(ServerBase):
     def _publishVectorLayerFromFileToPostgis(self, layer, filename):
         self.logInfo("Publishing layer from file: %s" % filename)
         self.createPostgisDatastore()
-        datastore, title, native_name, ft_name = self._getNames(layer)
+        datastore, title, native_name, available_name = self._getNames(layer)
         source_name = os.path.splitext(os.path.basename(filename))[0]
 
         # Create a new import
@@ -300,7 +300,7 @@ class GeoserverServer(ServerBase):
         # Get the import result (error message and target layer name)
         import_err, tmp_name = self._getImportResult(importId, taskId)
         if import_err:
-            self.logError("Failed to publish QGIS layer '%s' as '%s'.\n\n%s" % (title, ft_name, import_err))
+            self.logError("Failed to publish QGIS layer '%s' as '%s'.\n\n%s" % (title, available_name, import_err))
             return
 
         self._uploadedDatasets[filename] = (datastore, source_name)
@@ -312,7 +312,7 @@ class GeoserverServer(ServerBase):
         except HTTPError as e:
             if e.response.status_code == 404:
                 self.logError("Failed to publish QGIS layer '%s' as '%s' due to an unknown error.\n"
-                              "Please check the GeoServer logs." % (title, ft_name))
+                              "Please check the GeoServer logs." % (title, available_name))
                 return
             raise
 
@@ -324,7 +324,7 @@ class GeoserverServer(ServerBase):
         self.request(url, ft, "put")
 
         self.logInfo("Successfully created feature type from file '%s'" % filename)
-        self._fixLayerStyle(tmp_name, ft_name)
+        self._fixLayerStyle(tmp_name, available_name)
 
     def _publishRasterLayer(self, filename, layername):
         self._ensureWorkspaceExists()
