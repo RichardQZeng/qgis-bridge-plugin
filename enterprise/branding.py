@@ -1,6 +1,8 @@
-import os
-import shutil
 import fnmatch
+import html
+import os
+import re
+import shutil
 
 root = os.path.dirname(os.path.dirname(__file__))
 SRC_DIR = os.path.join(root, "geocatbridge")
@@ -8,14 +10,19 @@ DST_DIR = os.path.join(root, "geocatbridgeenterprise")
 DOCS_SRC_DIR = os.path.join(root, "docs")
 DOCS_DST_DIR = os.path.join(root, "docsenterprise")
 
-class ReplaceAction():
 
-    def __init__(self, old, new):
+class ReplaceAction:
+
+    def __init__(self, old, new, use_regex=False):
         self.old = old
         self.new = new
+        self._rex = use_regex
 
     def change(self, text):
-        text = text.replace(self.old, self.new)
+        if self._rex:
+            text = re.sub(self.old, self.new, text)
+        else:
+            text = text.replace(self.old, self.new)
         return text
 
     def run(self):
@@ -26,31 +33,35 @@ class ReplaceAction():
             with open(fpath, "w") as f:
                 f.write(text)
 
-    def files(self):
+    @staticmethod
+    def files():
         files = []
         for folder in [DST_DIR, DOCS_DST_DIR]:
-            for root, dirnames, filenames in os.walk(folder):
-                for ext in ["*.txt", "*.rst" , "*.py", "*.ui", "*.html", "*.ui"]:
+            for root_, dirnames, filenames in os.walk(folder):
+                for ext in ["*.txt", "*.rst", "*.py", "*.ui", "*.html", "*.ui"]:
                     for filename in fnmatch.filter(filenames, ext):
-                        files.append(os.path.join(root, filename))
+                        files.append(os.path.join(root_, filename))
         return files
 
-class SetIsEnterpriseAsTrueAction():
 
-    def run(self):
+class SetIsEnterpriseAsTrueAction:
+
+    @staticmethod
+    def run():
         code = "def isEnterprise():\n\treturn True"
         filepath = os.path.join(DST_DIR, "utils", "enterprise.py")
         with open(filepath, "w") as f:
             f.write(code)
 
+
 brandingActions = [
-                    ReplaceAction(" Bridge ", " Bridge Enterprise "),
-                    ReplaceAction("GeoCat Bridge", "GeoCat Bridge Enterprise"),
-                    ReplaceAction("geocatbridge.", "geocatbridgeenterprise."),
-                    ReplaceAction("https://github.com/GeoCat/qgis-bridge-plugin/issues", 
-                                "https://my.geocat.net/submitticket.php?step=2&deptid=1&subject=Bridge"),
-                    SetIsEnterpriseAsTrueAction()
-                ]
+    ReplaceAction(r'(\s)Bridge(\W)(?!Enterprise)', r'\1Bridge Enterprise\2', True),
+    ReplaceAction("geocatbridge.", "geocatbridgeenterprise."),
+    ReplaceAction("https://github.com/GeoCat/qgis-bridge-plugin/issues",
+                  html.escape("https://my.geocat.net/submitticket.php?step=2&deptid=1&subject=Bridge")),
+    SetIsEnterpriseAsTrueAction()
+]
+
 
 def doBranding():
     if os.path.exists(DST_DIR):
