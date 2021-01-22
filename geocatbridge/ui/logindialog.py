@@ -1,7 +1,7 @@
 from qgis.PyQt.QtWidgets import QDialog, QLineEdit, QPushButton, QVBoxLayout, QMessageBox, QLabel
 from qgis.core import QgsApplication, QgsAuthMethodConfig
 
-KEY_NAME = "geocatbridgenterprise"
+KEY_NAME = "geocatbridgeenterprise"
 
 def doEnterpriseLogin(key):
     return True #TODO
