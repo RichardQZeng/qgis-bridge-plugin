@@ -38,9 +38,15 @@ class ReplaceAction:
         files = []
         for folder in [DST_DIR, DOCS_DST_DIR]:
             for root_, dirnames, filenames in os.walk(folder):
-                for ext in ["*.txt", "*.rst", "*.py", "*.ui", "*.html", "*.ui"]:
-                    for filename in fnmatch.filter(filenames, ext):
-                        files.append(os.path.join(root_, filename))
+                # Collect file extensions
+                if 'debug' not in os.path.split(root_)[-1]:
+                    for ext in ["*.txt", "*.rst", "*.py", "*.ui", "*.html", "*.ui"]:
+                        for filename in fnmatch.filter(filenames, ext):
+                            files.append(os.path.join(root_, filename))
+                # Remove unwanted directories while we're here
+                for dirname in dirnames:
+                    if 'debug' in dirname.casefold():
+                        shutil.rmtree(os.path.join(root_, dirname))
         return files
 
 
