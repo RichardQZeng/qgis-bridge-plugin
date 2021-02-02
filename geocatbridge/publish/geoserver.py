@@ -334,12 +334,6 @@ class GeoserverServer(ServerBase):
         try:
             ret = self.request(url + "?quietOnNotFound=true")
         except HTTPError as e:
-            # Try to remove unwanted global style (created by Importer)
-            try:
-                self._fixLayerStyle(tmp_name, ft_name)
-            except Exception as e:
-                self.logWarning("Failed to perform global style cleanup:\n%s" % e)
-
             # Something unexpected happened: failure cannot be retrieved from import task,
             # so the user should check the GeoServer logs to find out what caused it.
             if e.response.status_code == 404:
@@ -347,6 +341,13 @@ class GeoserverServer(ServerBase):
                               "Please check the GeoServer logs." % (title, ft_name))
                 return
             raise
+        finally:
+            # Try to remove unwanted global style (created by Importer)
+            try:
+                self._fixLayerStyle(tmp_name, ft_name)
+            except Exception as e:
+                self.logWarning("Failed to clean up temporary Importer styles:\n%s" % e)
+
 
         # Modify the feature type descriptions, but leave the name in tact to avoid db schema mismatches
         self.logInfo("Fixing feature type properties...")
@@ -362,8 +363,10 @@ class GeoserverServer(ServerBase):
         self.logInfo("Performing style cleanup...")
         try:
             self._fixLayerStyle(tmp_name, ft_name)
-        except Exception as e:
-            self.logWarning("Failed to fix layer style:\n%s" % e)
+        except HTTPError as e:
+            self.logWarning("Failed to clean up layer styles:\n%s" % e)
+        else:
+            self.logInfo("Successfully published layer '%s'" % title)
 
     def _publishRasterLayer(self, filename, layername):
         self._ensureWorkspaceExists()
@@ -703,7 +706,7 @@ class GeoserverServer(ServerBase):
         try:
             url = "%s/about/version.json" % self.url
             result = self.request(url).json()['about']['resource']
-        except:
+        except HTTPError:
             errors.add("Could not connect to Geoserver.  Please check the server settings (including password).")
             return
         try:
@@ -719,9 +722,9 @@ class GeoserverServer(ServerBase):
                     "Please see <a href='https://my.geocat.net/knowledgebase/100/Bridge-4-compatibility-with-"
                     "Geoserver-2134-and-before.html'>Bridge 4 Compatibility with Geoserver 2.13.4 and before</a>"
                 )
-        except:
+        except Exception as e:
             # version format might not be the expected. This is usually a RC or dev version, so we consider it ok
-            pass
+            self.logWarning("Failed to retrieve GeoServer version info:\n%s" % e)
 
     def validateGeodataBeforePublication(self, errors, toPublish, onlySymbology):
         if not self._workspace:
