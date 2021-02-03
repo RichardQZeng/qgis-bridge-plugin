@@ -341,13 +341,6 @@ class GeoserverServer(ServerBase):
                               "Please check the GeoServer logs." % (title, ft_name))
                 return
             raise
-        finally:
-            # Try to remove unwanted global style (created by Importer)
-            try:
-                self._fixLayerStyle(tmp_name, ft_name)
-            except Exception as e:
-                self.logWarning("Failed to clean up temporary Importer styles:\n%s" % e)
-
 
         # Modify the feature type descriptions, but leave the name in tact to avoid db schema mismatches
         self.logInfo("Fixing feature type properties...")
@@ -398,7 +391,7 @@ class GeoserverServer(ServerBase):
         url = "%s/workspaces/%s/layergroups" % (self.url, self._workspace)
         try:
             self.request(url, groupdef, "post")
-        except:
+        except HTTPError:
             self.request(url, groupdef, "put")
 
         self.logInfo("Successfully created group '%s'" % group["name"])
@@ -431,30 +424,6 @@ class GeoserverServer(ServerBase):
             return name in items
         except:
             return False
-
-    def _getNextFeatureTypeName(self, datastore, name):
-        """
-        GeoServer never really removes a feature type. It appends a numeric suffix instead.
-        This function tries to figure out what the next numeric suffix will be in case the name already exists.
-        """
-        url = "%s/workspaces/%s/datastores/%s/featuretypes.json?list=all" % (self.url, self._workspace, datastore)
-        try:
-            ftypes = sorted(self.request(url).json().get("list", {}).get("string", []))
-        except HTTPError as e:
-            if e.response.status_code == 404:
-                # Workspace and/or datastore does not exist yet, so proposed name can be returned as-is
-                return name
-            raise
-
-        # Find the next available numeric suffix
-        numsuffix = -1
-        for ft in ftypes:
-            if not ft.startswith(name):
-                continue
-            suffix = ft[len(name):]
-            if suffix.isnumeric():
-                numsuffix = max(numsuffix, int(suffix))
-        return name + (str(numsuffix + 1) if numsuffix >= 0 else "")
 
     def layerExists(self, name):
         url = "%s/workspaces/%s/layers.json" % (self.url, self._workspace)
@@ -609,65 +578,113 @@ class GeoserverServer(ServerBase):
             return True
         return False
 
-    def _publishStyle(self, name, styleFilename):
-        # feedback.setText("Publishing style for layer %s" % name)
+    def _publishStyle(self, name, style_filepath):
+        # Make sure that the workspace is present
         self._ensureWorkspaceExists()
-        headers = {'Content-Type': 'application/zip'}
-        if self.styleExists(name):
-            # Update style
-            method = "put"
-            url = self.url + "/workspaces/%s/styles/%s" % (self._workspace, name)
-        else:
-            # Create new style
-            url = self.url + "/workspaces/%s/styles?name=%s" % (self._workspace, name)
-            method = "post"
-        with open(styleFilename, "rb") as f:
-            self.request(url, f.read(), method, headers)
-        self.logInfo(QCoreApplication.translate("GeocatBridge", "Successfully created style '%s' from ZIP file '%s'"
-                                                % (name, styleFilename)))
 
-    def _setLayerStyle(self, name):
+        # Extract zip file name only
+        zipname = os.path.basename(style_filepath)
+
+        # If style does not exist, create it using POST
+        if not self.styleExists(name):
+            url = self.url + "/workspaces/%s/styles" % self._workspace
+            try:
+                body = {
+                    "style": {
+                        "name": name,
+                        "filename": zipname.replace('zip', 'sld')
+                    }
+                }
+                self.request(url, body, "post")
+            except HTTPError as e:
+                self.logError("Failed to create new style '%s' in workspace '%s':\n%s" % (name, self._workspace, e))
+                return
+            self.logInfo(QCoreApplication.translate("GeocatBridge",
+                                                    "Successfully created style '%s' in workspace '%s'"
+                                                    % (name, self._workspace)))
+
+        # Update existing style
+        url = self.url + "/workspaces/%s/styles/%s" % (self._workspace, name)
+        try:
+            with open(style_filepath, "rb") as f:
+                headers = {'Content-Type': 'application/zip'}
+                self.request(url, f.read(), "put", headers)
+        except HTTPError as e:
+            self.logError("Failed to update style '%s' in workspace '%s' "
+                          "using ZIP file '%s':\n%s" % (name, self._workspace, style_filepath, e))
+            return
+        self.logInfo(QCoreApplication.translate("GeocatBridge",
+                                                "Successfully updated style '%s' in workspace '%s' using ZIP file '%s'"
+                                                % (name, self._workspace, style_filepath)))
+
+    def _setLayerStyle(self, name, style_name=None):
+        """
+        Update the layer style so that it matches the layer name and workspace.
+        If the update was successful, the previous style object is returned.
+        If the update failed or the new style does not exist, an empty object is returned.
+
+        :param name:        Layer (and style name).
+        :param style_name:  Style name (if different from layer name).
+        :return:            A style object.
+        """
+        style_name = style_name or name
+
+        # Get layer properties
         url = "%s/workspaces/%s/layers/%s.json" % (self.url, self._workspace, name)
-        layer = self.request(url).json()
-        styleUrl = "%s/workspaces/%s/styles/%s.json" % (self.url, self._workspace, name)
-        # TODO: does this still work properly?
-        layer["layer"]["defaultStyle"] = {
-            "name": name,
-            "href": styleUrl
-        }
-        self.request(url, data=layer, method="put")
+        try:
+            layer_def = self.request(url).json()
+            if not self.styleExists(style_name):
+                self.logWarning(QCoreApplication.translate("GeocatBridge",
+                                                           "Style '%s' does not exist in workspace '%s'" %
+                                                           (style_name, self._workspace)))
 
-    def _fixLayerStyle(self, tmp_name, new_name):
+                raise KeyError()
+        except (HTTPError, KeyError):
+            return {}
+
+        # Copy current default style and update for layer
+        old_style = dict(layer_def["layer"]["defaultStyle"])
+        style_url = "%s/workspaces/%s/styles/%s.json" % (self.url, self._workspace, style_name)
+        layer_def["layer"]["defaultStyle"] = {
+            "name": "%s:%s" % (self._workspace, style_name),
+            "workspace": self._workspace,
+            "href": style_url
+        }
+        try:
+            self.request(url, data=layer_def, method="put")
+        except HTTPError:
+            return {}
+        return old_style
+
+    def _fixLayerStyle(self, actual_name, proper_name):
         """
         Fixes the layer style for feature types that have been imported using the GeoServer Importer extension.
         The Importer extension also creates an unwanted global style, which is removed by this function.
+
+        :param actual_name: Layer name given by GeoServer (may contain numeric suffix).
+        :param proper_name: The desired layer name, which should also be the style name.
         """
 
-        # Get layer properties
-        url = "%s/workspaces/%s/layers/%s.json" % (self.url, self._workspace, tmp_name)
-        try:
-            layer = self.request(url).json()
-        except HTTPError:
-            # This should not happen, because the layer inherits the feature type name.
-            # In case that goes wrong, we could try fetching the layer using the new name.
-            url = "%s/workspaces/%s/layers/%s.json" % (self.url, self._workspace, new_name)
-            layer = self.request(url).json()
+        old_style = self._setLayerStyle(actual_name, proper_name)
+        if not old_style:
+            # Something went wrong or the new style to assign does not exist:
+            # The layer style will remain as-is and we will not delete the old style.
+            return
 
-        # Get the URL of the unwanted global style that we need to clean up
-        remove_url = "%s?recurse=true&purge=true" % layer["layer"]["defaultStyle"]["href"]
-
-        # Assign desired workspace style (and name)
-        layer["layer"]["name"] = new_name
-        layer["layer"]["defaultStyle"] = {
-            "name": "%s:%s" % (self._workspace, new_name)   # use workspace:name as identifier
-        }
-        self.request(url, data=layer, method="put")
-
-        # Remove unwanted global style created by Importer extension (if exists)
-        try:
-            self.request(remove_url, method="delete")
-        except HTTPError:
-            pass
+        # Only remove style created by Importer extension if it is a global style.
+        # However, built-in GeoServer styles should not be touched.
+        if old_style.get("workspace"):
+            # Style is not global: don't delete old style
+            return
+        style_name = old_style.get("name", "").casefold()
+        if style_name and style_name not in ("raster", "point", "polygon", "line", "generic"):
+            remove_url = "%s?purge=true" % old_style.get("href")
+            try:
+                # Delete old style
+                self.request(remove_url, method="delete")
+            except HTTPError:
+                # Bad request or style is still in use by other layers: do nothing
+                pass
 
     def _createWorkspace(self):
         """ Creates the workspace. """
