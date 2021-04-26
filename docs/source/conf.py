@@ -112,6 +112,9 @@ html_theme_options = {
   'display_version': True            # no version number
 }
 
+html_context = {'theme_is_prerelease': False}
+
+
 # Add any paths that contain custom themes here, relative to this directory.
 html_theme_path = ['../themes']
 
